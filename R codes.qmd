@@ -1,0 +1,668 @@
+---
+title: "Final_Project"
+format: pdf
+editor: visual
+---
+
+## Data Review
+
+```{r}
+data <- read.csv("credit_risk_dataset.csv")
+head(data)
+```
+
+```{r}
+library(tidyverse)
+glimpse(data)
+```
+
+### Data Cleaning
+
+```{r}
+data <- data %>% mutate(
+  person_home_ownership = as.factor(person_home_ownership),
+  loan_intent = as.factor(loan_intent),
+  loan_grade = as.factor(loan_grade),
+  cb_person_default_on_file = as.factor(cb_person_default_on_file),
+  loan_status = ifelse(loan_status == 1, "Yes", "No"),
+  loan_status = as.factor(loan_status)
+)
+glimpse(data)
+```
+
+## Data Visualization
+
+```{r}
+library(plotly)
+```
+
+Person's Income Distribution
+
+```{r}
+plot_ly(
+  data = data,
+  y = ~person_income,
+  type = "box",
+  boxpoints = "all", 
+  jitter = 0.3,      
+  pointpos = -1.8,   
+  marker = list(color = 'blue', opacity = 0.7),
+  line = list(color = 'black')
+) %>%
+  layout(
+    title = "Income Distribution Boxplot",
+    yaxis = list(title = "Income"),
+    xaxis = list(title = "")
+  )
+
+```
+
+```{r}
+summary(data$person_income)
+```
+
+Person's Age Distribution
+
+```{r}
+density_data <- density(data$person_age)
+
+plot_ly() %>%
+  add_histogram(
+    x = data$person_age,
+    name = "Histogram",
+    opacity = 0.6,
+    marker = list(color = "blue")
+  ) %>%
+  add_lines(
+    x = density_data$x,
+    y = density_data$y * length(data$person_age), 
+    name = "Density",
+    line = list(color = "red")
+  ) %>%
+  layout(
+    title = "Age Distribution with Density",
+    xaxis = list(title = "Age"),
+    yaxis = list(title = "Frequency/Density"),
+    bargap = 0.1
+  )
+```
+
+```{r}
+summary(data$person_age)
+```
+
+Loan Amount
+
+```{r}
+plot_ly(
+  data = data,
+  x = ~loan_amnt,
+  type = "histogram",
+  marker = list(color = 'blue', line = list(color = 'black', width = 1)),
+  opacity = 0.7
+) %>%
+  layout(
+    title = "Loan Amount Distribution",
+    xaxis = list(title = "Loan Amount"),
+    yaxis = list(title = "Frequency"),
+    bargap = 0.1
+  )
+
+
+```
+
+```{r}
+summary(data$loan_amnt)
+```
+
+Loan Intent
+
+```{r}
+plot_ly(
+  data = data,
+  x = ~loan_intent,
+  y = ~loan_amnt,
+  type = "box",
+  boxpoints = "all",   
+  jitter = 0.3,        
+  pointpos = -1.8,     
+  marker = list(color = 'blue', opacity = 0.7),
+  line = list(color = 'black')
+) %>%
+  layout(
+    title = "Loan Amount by Loan Intent",
+    xaxis = list(title = "Loan Intent"),
+    yaxis = list(title = "Loan Amount")
+  )
+```
+
+```{r}
+summary(data$loan_intent)
+```
+
+Home Ownership
+
+```{r}
+plot_ly(
+  data = data,
+  x = ~person_home_ownership, 
+  y = ~loan_amnt,           
+  type = "box",
+  boxpoints = "all",          
+  jitter = 0.3,               
+  pointpos = -1.8,            
+  marker = list(color = 'orange', opacity = 0.7),
+  line = list(color = 'black')
+) %>%
+  layout(
+    title = "Loan Amount by Home Ownership",
+    xaxis = list(title = "Home Ownership"),
+    yaxis = list(title = "Loan Amount")
+  )
+```
+
+```{r}
+summary(data$person_home_ownership)
+```
+
+Incomme vs Loan
+
+```{r}
+plot_ly(
+  data = data,
+  x = ~person_income,
+  y = ~loan_amnt,
+  color = ~loan_status,           
+  colors = c("green", "red"),     
+  type = "scatter",
+  mode = "markers",              
+  marker = list(size = 8, opacity = 0.7),  
+  text = ~paste("Income: ", person_income, "<br>Loan Amount: ", loan_amnt)  
+) %>%
+  layout(
+    title = "Loan Amount vs. Income by Loan Status",
+    xaxis = list(title = "Income"),
+    yaxis = list(title = "Loan Amount"),
+    showlegend = TRUE
+  )
+```
+
+We are predicting loan_status base on the following independent variables:
+
+-   person_age
+
+-   person_income
+
+-   person_home_ownership
+
+-   person_emp_length
+
+-   loan_intent
+
+-   loan_grade
+
+-   loan_amnt
+
+-   loan_int_rate
+
+```{r}
+data = data |> select(person_age, person_income, person_home_ownership, person_emp_length, loan_intent, loan_grade, loan_amnt, loan_int_rate, loan_status) |> na.omit()
+```
+
+## Train Test Split
+
+Data is split 80 by 20 - 80% for training and 20% for testing
+
+```{r}
+set.seed(123)
+n = nrow(data)
+subsample = sample(n, n*0.8)
+training_data = data[subsample, ]
+testing_data = data[-subsample, ]
+```
+
+## Logistic Regression with Adjusted Threshold
+
+```{r, warning=FALSE}
+logisticRegression = glm( loan_status ~ ., data = training_data, 
+                          family = "binomial")
+summary(logisticRegression)
+```
+
+```{r}
+predict <- predict(logisticRegression, newdata = testing_data, 
+                   type = "response")
+Yhat = ifelse(predict > 0.5, "Yes", "No")
+logisticRegressionErrorRate = mean(testing_data$loan_status != Yhat)
+logisticRegressionErrorRate
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+Adjusted Threshold\
+
+```{r, warning=FALSE}
+threshold = seq(0.01, 1, 0.01)
+class.rate = numeric(100)
+
+for (k in 1:100){
+  logisticRegression =  glm( loan_status ~ ., data = training_data, 
+                             family = "binomial")
+  predict <- predict(logisticRegression, newdata = testing_data, 
+                     type = "response")
+  Yhat = ifelse(predict > threshold[k], "Yes", "No")
+  class.rate[k] = mean(testing_data$loan_status != Yhat )
+}
+
+threshold[which.min(class.rate)]
+min(class.rate)
+
+```
+
+```{r}
+predict <- predict(logisticRegression, newdata = testing_data, 
+                   type = "response")
+Yhat = ifelse(predict > 0.41, "Yes", "No")
+logisticRegressionErrorRate = mean(testing_data$loan_status != Yhat)
+logisticRegressionErrorRate
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(table(Actual = testing_data$loan_status, Predict = Yhat))
+
+# Plot the confusion matrix using ggplot2
+ggplot(conf_matrix_df, aes(x = Predict, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted",
+    y = "Actual"
+  ) +
+  theme_minimal()
+```
+
+## K-Nearest Neighbors (KNN) with adjusting K-Values
+
+```{r}
+library(class)
+Xtrain <- training_data |> select(-loan_status) |> 
+  mutate_if(is.factor, as.numeric)
+Ytrain <- training_data$loan_status
+Xtest <- testing_data |> select(-loan_status) |> 
+  mutate_if(is.factor, as.numeric)
+Ytest <- testing_data$loan_status
+
+class_rate = numeric(100)
+k = seq(1, 100)
+
+for (i in 1:100){
+  Yhat = knn(Xtrain, Xtest, Ytrain, k[i])
+  class_rate[i] = mean(Yhat != Ytest)
+}
+```
+
+```{r}
+k[which.min(class_rate)]
+min(class_rate)
+```
+
+```{r}
+Yhat = knn(Xtrain, Xtest, Ytrain, 31)
+table(Actual = Ytest, Predict = Yhat)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(table(Actual = Ytest, Predict = Yhat))
+
+# Plot the confusion matrix using ggplot2
+ggplot(conf_matrix_df, aes(x = Predict, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted",
+    y = "Actual"
+  ) +
+  theme_minimal()
+```
+
+## Linear Discriminant Analysis
+
+```{r}
+library(MASS)
+ldaModel = lda(loan_status ~ ., data = training_data)
+Yhat = predict(ldaModel, testing_data)$class
+Error.Rate = mean(Yhat != testing_data$loan_status)
+Error.Rate
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(table(Actual = testing_data$loan_status, Predict = Yhat))
+
+# Plot the confusion matrix using ggplot2
+ggplot(conf_matrix_df, aes(x = Predict, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted",
+    y = "Actual"
+  ) +
+  theme_minimal()
+```
+
+## Dimension Reduction
+
+### Least Squared
+
+```{r}
+library(leaps)
+leastSquared = regsubsets(loan_status ~ ., data = training_data)
+summary(leastSquared)
+```
+
+```{r, warning=FALSE}
+threshold = seq(0.01, 1, 0.01)
+class.rate = numeric(100)
+
+for (k in 1:100){
+  bestModel = glm(loan_status ~ person_income + person_home_ownership + loan_intent + loan_grade + 
+                    loan_amnt, data = training_data, family = "binomial")
+  pred <- predict(bestModel, newdata = testing_data, type = "response")
+  Yhat = ifelse(pred > threshold[k], "Yes", "No")
+  class.rate[k] = mean(testing_data$loan_status != Yhat )
+}
+
+threshold[which.min(class.rate)]
+min(class.rate)
+```
+
+```{r}
+bestModel = glm(loan_status ~ person_income + person_home_ownership + loan_intent + loan_grade + 
+                    loan_amnt, data = training_data, family = "binomial")
+pred <- predict(bestModel, newdata = testing_data, type = "response")
+Yhat = ifelse(pred > 0.41, "Yes", "No")
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(table(Actual = testing_data$loan_status, Predict = Yhat))
+
+# Plot the confusion matrix using ggplot2
+ggplot(conf_matrix_df, aes(x = Predict, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted",
+    y = "Actual"
+  ) +
+  theme_minimal()
+```
+
+### PLS
+
+```{r}
+library(pls)
+training_data_pls = training_data
+training_data_pls = training_data_pls |> mutate(loan_status = 
+                                                  as.numeric(
+                                                    training_data_pls$loan_status
+                                                    ) - 1)
+testing_data_pls = testing_data
+testing_data_pls = testing_data_pls |> mutate(loan_status = 
+                                                as.numeric(
+                                                  testing_data_pls$loan_status
+                                                  ) - 1)
+PLS.CV = plsr(loan_status ~ ., data = training_data_pls, validation = 'CV', 
+              scale = TRUE)
+summary(PLS.CV)
+validationplot(PLS.CV)
+
+```
+
+```{r}
+PLS = plsr(loan_status ~ ., data = training_data_pls, scale = TRUE, 
+           ncomp = 18)
+Yhat = predict(PLS, newdata = testing_data_pls)
+Yhat = ifelse(Yhat == 1, "Yes", "No")
+Error_Rate = mean(Yhat != testing_data$loan_status)
+Error_Rate
+```
+
+### PCR
+
+```{r}
+PCR.CV = pcr(loan_status ~ ., data = training_data_pls, validation = 'CV', 
+             scale = TRUE)
+summary(PCR.CV)
+validationplot(PCR.CV)
+
+```
+
+```{r}
+PCR = pcr(loan_status ~ ., data = training_data_pls, scale = TRUE, ncomp = 18)
+Yhat = predict(PCR, newdata = testing_data_pls)
+Yhat = ifelse(Yhat == 1, "Yes", "No")
+Error_Rate = mean(Yhat != testing_data$loan_status)
+Error_Rate
+```
+
+### LASSO
+
+```{r}
+library(glmnet)
+data_con = data
+
+reg = glm(loan_status ~ ., data = data_con, family = "binomial")
+X = model.matrix(reg)
+Y = data_con$loan_status
+```
+
+```{r}
+Xtrain = X[subsample, ]
+Ytrain = Y[subsample]
+Xtest = X[-subsample,]
+Ytest = Y[subsample]
+```
+
+```{r}
+lassoCV = cv.glmnet(Xtrain, Ytrain, alpha = 1, lamda = seq(0, 1, 0.0000001), 
+                    family = "binomial")
+lasso = glmnet(Xtrain, Ytrain, alpha = 1, lambda = lassoCV$lambda.min, 
+               family = "binomial")
+Yhat = predict(lasso, newx = Xtest, type = "response")
+Yhat = ifelse(Yhat > 0.5, "Yes", "No")
+Error_Rate = mean(Yhat != testing_data$loan_status)
+Error_Rate
+```
+
+### Ridge
+
+```{r}
+ridgeCV = cv.glmnet(Xtrain, Ytrain, alpha = 0, lamda = seq(0, 1, 0.0000001), 
+                    family = "binomial")
+ridge = glmnet(Xtrain, Ytrain, alpha = 0, lambda = ridgeCV$lambda.min, 
+               family = "binomial")
+Yhat = predict(ridge, newx = Xtest, type = "response")
+Yhat = ifelse(Yhat > 0.5, "Yes", "No")
+Error_Rate = mean(Yhat != testing_data$loan_status)
+Error_Rate
+```
+
+## Decision Tree with Cross-Validation
+
+```{r}
+library(tree)
+TREE = tree(loan_status ~ ., training_data)
+TREE
+plot(TREE)
+text(TREE)
+```
+
+```{r}
+Yhat = predict(TREE, testing_data, type = "class")
+Error_Rate = mean(testing_data$loan_status != Yhat)
+Error_Rate
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(table(Actual = testing_data$loan_status, Predict = Yhat))
+
+# Plot the confusion matrix using ggplot2
+ggplot(conf_matrix_df, aes(x = Predict, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted",
+    y = "Actual"
+  ) +
+  theme_minimal()
+```
+
+With Cross-Validation
+
+```{r}
+TREE.CV = cv.tree(TREE, FUN = prune.misclass)
+TREE.CV
+```
+
+From the cross-validation, the tree is already using the most optimized leaves for decision
+
+## Random Forest with Cross-Validation
+
+```{r}
+library(randomForest)
+RForest = randomForest( loan_status ~ ., data = training_data)
+RForest
+```
+
+```{r}
+Yhat = predict(RForest, newdata = testing_data, type = "class")
+Error_Rate = mean(testing_data$loan_status != Yhat)
+Error_Rate
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+Optimize the number of trees and the number of variables
+
+```{r}
+opt.trees = numeric(8)
+Error_Rate = numeric(8)
+
+for (m in 1:8){
+  RF = randomForest( loan_status ~ ., data = training_data, mtry = m, 
+                     ntree = 500)
+  Ntrees = which.min(RF$err.rate[, 1])
+  opt.trees[m] = Ntrees
+  RF = randomForest( loan_status ~ ., data = training_data, mtry = m, 
+                     ntree = Ntrees)
+  Yhat = predict(RF, newdata = testing_data, type = "class")
+  Error_Rate[m] = mean(Yhat != testing_data$loan_status)
+}
+Error_Rate
+opt.trees
+```
+
+```{r}
+best_mtry= which.min(Error_Rate)
+best_tree = opt.trees[which.min(Error_Rate)]
+```
+
+```{r}
+plot(1:8, Error_Rate, type = "b", col = "blue", pch = 19,
+     xlab = "mtry", ylab = "Error Rate",
+     main = "Error Rate vs mtry")
+```
+
+Optimizing the number of trees to 379 with 6 randomly selected predictor variables
+
+```{r}
+RF = randomForest(loan_status ~ ., data = training_data, mtry = best_mtry, 
+                  ntree = best_tree)
+RF
+```
+
+```{r}
+Yhat = predict(RF, newdata = testing_data, type = "class")
+Error_Rate = mean(testing_data$loan_status != Yhat)
+Error_Rate
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(table(Actual = testing_data$loan_status, Predict = Yhat))
+
+# Plot the confusion matrix using ggplot2
+ggplot(conf_matrix_df, aes(x = Predict, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted",
+    y = "Actual"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+importance(RF)
+```
+
+## Support Vector ML with Cross-Validation
+
+```{r}
+library(e1071)
+SVM = svm(loan_status ~ ., data = training_data)
+SVM
+```
+
+```{r}
+Yhat = predict(SVM, testing_data)
+Error_Rate = mean(testing_data$loan_status != Yhat)
+Error_Rate
+```
+
+With Cross-Validation
+
+```{r}
+SVM.CV = tune(svm, loan_status ~ ., data = training_data, 
+              ranges = list(cost = 10^seq(-1,1), 
+                            kernel = c("linear", "radial", "polynomial", "sigmoid")))
+SVM.CV
+```
+
+```{r}
+SVM = svm(loan_status ~ ., data = training_data, cost = 10, 
+          kernel = "radial")
+Yhat = predict(SVM, testing_data)
+Erroe_Rate = mean(Yhat != testing_data$loan_status)
+Error_Rate
+table(Actual = testing_data$loan_status, Predict = Yhat)
+```
+
+```{r}
+conf_matrix_df <- as.data.frame(table(Actual = testing_data$loan_status, Predict = Yhat))
+
+# Plot the confusion matrix using ggplot2
+ggplot(conf_matrix_df, aes(x = Predict, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(
+    title = "Confusion Matrix",
+    x = "Predicted",
+    y = "Actual"
+  ) +
+  theme_minimal()
+```
